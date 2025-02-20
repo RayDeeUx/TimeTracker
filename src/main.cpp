@@ -1,8 +1,10 @@
+#include <Geode/modify/LevelInfoLayer.hpp>
+#include <Geode/modify/PlayLayer.hpp>
+#include <chrono>
 #include "SaveUtils.hpp"
 
 using namespace geode::prelude;
 
-#include <Geode/modify/LevelInfoLayer.hpp>
 class $modify(MyLevelInfoLayer, LevelInfoLayer) {
 	bool init(GJGameLevel * level, bool challenge) {
 
@@ -10,17 +12,16 @@ class $modify(MyLevelInfoLayer, LevelInfoLayer) {
 
 		if (!Mod::get()->getSettingValue<bool>("enable-button")) return true;
 
+		auto menu = this->getChildByID("left-side-menu");
+		if (!menu) return true;
+
 		auto timeSettings = CCMenuItemSpriteExtra::create(
 			CCSprite::create("TTSettingsButton.png"_spr),
-			this,
-			menu_selector(MyLevelInfoLayer::onTimeSettings)
+			this, menu_selector(MyLevelInfoLayer::onTimeSettings)
 		);
-
-		auto menu = this->getChildByID("left-side-menu");
-		menu->addChild(timeSettings);
-
 		timeSettings->setID("time-settings"_spr);
 
+		menu->addChild(timeSettings);
 		menu->updateLayout();
 
 		return true;
@@ -29,20 +30,14 @@ class $modify(MyLevelInfoLayer, LevelInfoLayer) {
 		std::string description;
 		std::vector<int> timeObj = Mod::get()->getSavedValue<std::vector<int>>(std::to_string(m_level->m_levelID.value()), std::vector<int>());
 
-		if (timeObj.empty()) {
-			FLAlertLayer::create("Time Played", "<cr>No time recorded</c>", "OK")->show();
-			return;
-		}
+		if (timeObj.empty()) return FLAlertLayer::create("Time Played", "No time recorded", "OK")->show();
 
 		bool hhmmssFormat = Mod::get()->getSettingValue<bool>("hhmmss-time-format");
 		bool hoursFormat = Mod::get()->getSettingValue<bool>("hours-only-time-format");
 		bool timeWithPaused = Mod::get()->getSettingValue<bool>("time-with-paused");
 		bool timeWithoutPaused = Mod::get()->getSettingValue<bool>("time-without-paused");
 
-		if (!(timeWithoutPaused || timeWithPaused)) {
-			FLAlertLayer::create("Time Played", "You need to select either a 'total time' or 'excluding paused time' option in settings!", "OK")->show();
-			return;
-		}
+		if (!(timeWithoutPaused || timeWithPaused)) return FLAlertLayer::create("Time Played", "You need to select either a 'total time' or 'excluding paused time' option in settings!", "OK")->show();
 
 		if (timeWithPaused) {
 			int seconds = timeObj[0];
@@ -86,50 +81,38 @@ class $modify(MyLevelInfoLayer, LevelInfoLayer) {
 	}
 };
 
-#include <Geode/modify/PlayLayer.hpp>
-#include <chrono>
-
-class $modify(PlayLayer) {
+class $modify(MyPlayLayer, PlayLayer) {
 	struct Fields {
 		std::chrono::steady_clock::time_point m_sessionStart = std::chrono::steady_clock::now();
 		std::chrono::steady_clock::time_point m_pausePoint = std::chrono::steady_clock::now();
 		std::chrono::seconds m_pauseTime = std::chrono::seconds::zero();
 		bool m_loggingPaused = false;
-		void updatePauseTime() {
-			std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
-			std::chrono::duration duration = now - m_pausePoint;
-			std::chrono::seconds seconds = std::chrono::duration_cast<std::chrono::seconds>(duration);
-			m_pauseTime += seconds;
-			m_loggingPaused = false;
-		}
 	};
 	bool init(GJGameLevel * level, bool useReplay, bool dontCreateObjects) {
-
 		if (!PlayLayer::init(level, useReplay, dontCreateObjects)) return false;
-
 		m_fields->m_sessionStart = std::chrono::steady_clock::now();
-
 		return true;
 	}
-
-	void destructor() {
+	void updatePauseTime() {
+		std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+		std::chrono::duration duration = now - m_pausePoint;
+		std::chrono::seconds seconds = std::chrono::duration_cast<std::chrono::seconds>(duration);
+		m_pauseTime += seconds;
+		m_loggingPaused = false;
 		std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
 		std::chrono::duration duration = now - m_fields->m_sessionStart;
 		std::chrono::seconds seconds = std::chrono::duration_cast<std::chrono::seconds>(duration);
 
-		if(m_isPaused && m_fields->m_loggingPaused) m_fields->updatePauseTime();
+		if (m_isPaused && m_fields->m_loggingPaused) MyPlayLayer::updatePauseTime();
 
 		int secondsPlayed = seconds.count();
 		int secondsPaused = m_fields->m_pauseTime.count();
 
 		std::vector<int> times = {secondsPlayed, secondsPaused};
 		SaveUtils::addTime(m_level, times);
-
-		PlayLayer::~PlayLayer();
 	}
-
 	void onQuit() {
-		m_fields->updatePauseTime();
+		MyPlayLayer::updatePauseTime();
 		PlayLayer::onQuit();
 	}
 	void pauseGame(bool bl) {
@@ -138,7 +121,7 @@ class $modify(PlayLayer) {
 		PlayLayer::pauseGame(bl);
 	}
 	void resume() {
-		m_fields->updatePauseTime();
+		MyPlayLayer::updatePauseTime();
 		PlayLayer::resume();
 	}
 };
